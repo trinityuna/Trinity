@@ -56,22 +56,18 @@ jobs:
         ./Configure android-arm64 -D__ANDROID_API__=23 --prefix=$GITHUB_WORKSPACE/openssl-android no-shared
         make -j$(nproc)
         make install_sw
-        echo "OPENSSL_ROOT_DIR=$GITHUB_WORKSPACE/openssl-android" >> $GITHUB_ENV
     
     - name: Update pro file with OpenSSL
       run: |
+        OPENSSL_PATH="$GITHUB_WORKSPACE/openssl-android"
         if ! grep -q "OPENSSL" FastPayQt.pro; then
           echo "" >> FastPayQt.pro
-          echo "INCLUDEPATH += \$\$OPENSSL_ROOT_DIR/include" >> FastPayQt.pro
-          echo "LIBS += -L\$\$OPENSSL_ROOT_DIR/lib -lssl -lcrypto" >> FastPayQt.pro
-          echo "android {" >> FastPayQt.pro
-          echo "    ANDROID_EXTRA_LIBS += \$\$OPENSSL_ROOT_DIR/lib/libssl.a \$\$OPENSSL_ROOT_DIR/lib/libcrypto.a" >> FastPayQt.pro
-          echo "}" >> FastPayQt.pro
+          echo "INCLUDEPATH += $OPENSSL_PATH/include" >> FastPayQt.pro
+          echo "LIBS += -L$OPENSSL_PATH/lib -lssl -lcrypto" >> FastPayQt.pro
         fi
     
     - name: Build APK
       run: |
-        export OPENSSL_ROOT_DIR=$GITHUB_WORKSPACE/openssl-android
         qmake FastPayQt.pro -spec android-clang "CONFIG+=release"
         make -j$(nproc)
         make apk
