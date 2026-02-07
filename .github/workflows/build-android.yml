@@ -53,13 +53,16 @@ jobs:
         cd openssl-3.0.13
         export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.1.8937393
         export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
-        ./Configure android-arm64 -D__ANDROID_API__=23 --prefix=$GITHUB_WORKSPACE/openssl-android no-shared
+        ./Configure android-arm64 -D__ANDROID_API__=23 --prefix=$GITHUB_WORKSPACE/openssl-android shared
         make -j$(nproc)
         make install_sw
+        
+        # Copy .so files to Qt lib directory so androiddeployqt can find them
+        cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so* $Qt6_DIR/lib/ || true
+        cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so* $Qt6_DIR/lib/ || true
     
     - name: Fix duplicate main issue
       run: |
-        # Remove the main function from transaction.cpp or exclude it from build
         if grep -q "Crypto/transaction.cpp" FastPayQt.pro; then
           sed -i 's/Crypto\/transaction.cpp/# Crypto\/transaction.cpp/' FastPayQt.pro
         fi
@@ -71,6 +74,9 @@ jobs:
           echo "" >> FastPayQt.pro
           echo "INCLUDEPATH += $OPENSSL_PATH/include" >> FastPayQt.pro
           echo "LIBS += -L$OPENSSL_PATH/lib -lssl -lcrypto" >> FastPayQt.pro
+          echo "android {" >> FastPayQt.pro
+          echo "    ANDROID_EXTRA_LIBS += $Qt6_DIR/lib/libssl.so $Qt6_DIR/lib/libcrypto.so" >> FastPayQt.pro
+          echo "}" >> FastPayQt.pro
         fi
     
     - name: Build APK
@@ -89,6 +95,7 @@ jobs:
           exit 1
         fi
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+        echo "Found APK: $APK_PATH"
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
