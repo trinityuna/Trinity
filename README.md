@@ -94,11 +94,11 @@ App requests RECORD_AUDIO at runtime automatically
 
 1. ✅ `server_config.h` - Set your production server URL
 2. ✅ `android/AndroidManifest.xml` - Change package name if needed
-3. ✅ `build_android.sh` - Update Qt/SDK paths if non-standard
+3.  `build_android.sh` - Update Qt/SDK paths if non-standard
 
 ---
 
-## 🔐 Permissions
+## Permissions
 
 - RECORD_AUDIO - Ultrasound reception
 - INTERNET - Online transactions
@@ -106,4 +106,4 @@ App requests RECORD_AUDIO at runtime automatically
 
 ---
 
-Built with Qt 6 • Secure by design ❤️
+Built with Qt 6 • Secure by design 
