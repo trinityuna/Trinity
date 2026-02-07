@@ -54,16 +54,49 @@ jobs:
         sdkmanager --install "ndk;25.1.8937393"
         echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.1.8937393" >> $GITHUB_ENV
     
-    - name: List repository structure
+    - name: Build OpenSSL for Android
       run: |
-        echo "Repository contents:"
-        ls -la
-        echo "Looking for .pro files:"
-        find . -name "*.pro"
+        # Download OpenSSL
+        wget https://github.com/openssl/openssl/releases/download/openssl-3.0.13/openssl-3.0.13.tar.gz
+        tar -xzf openssl-3.0.13.tar.gz
+        cd openssl-3.0.13
+        
+        # Set up Android toolchain
+        export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.1.8937393
+        export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+        
+        # Configure and build for arm64
+        ./Configure android-arm64 \
+          -D__ANDROID_API__=23 \
+          --prefix=$GITHUB_WORKSPACE/openssl-android \
+          no-shared
+        
+        make -j$(nproc)
+        make install_sw
+        
+        echo "OPENSSL_ROOT_DIR=$GITHUB_WORKSPACE/openssl-android" >> $GITHUB_ENV
+    
+    - name: Update .pro file with OpenSSL paths
+      run: |
+        # Add OpenSSL to the .pro file if not already there
+        if ! grep -q "OPENSSL" FastPayQt.pro; then
+          cat >> FastPayQt.pro << 'EOF'
+
+# OpenSSL configuration
+INCLUDEPATH += $$OPENSSL_ROOT_DIR/include
+LIBS += -L$$OPENSSL_ROOT_DIR/lib -lssl -lcrypto
+android {
+    ANDROID_EXTRA_LIBS += \
+        $$OPENSSL_ROOT_DIR/lib/libssl.a \
+        $$OPENSSL_ROOT_DIR/lib/libcrypto.a
+}
+EOF
+        fi
     
     - name: Build APK
       run: |
-        # Find the .pro file location
+        export OPENSSL_ROOT_DIR=$GITHUB_WORKSPACE/openssl-android
+        
         PRO_FILE=$(find . -name "FastPayQt.pro" | head -n 1)
         if [ -z "$PRO_FILE" ]; then
           echo "Error: FastPayQt.pro not found!"
