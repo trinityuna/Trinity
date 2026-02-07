@@ -57,6 +57,13 @@ jobs:
         make -j$(nproc)
         make install_sw
     
+    - name: Fix duplicate main issue
+      run: |
+        # Remove the main function from transaction.cpp or exclude it from build
+        if grep -q "Crypto/transaction.cpp" FastPayQt.pro; then
+          sed -i 's/Crypto\/transaction.cpp/# Crypto\/transaction.cpp/' FastPayQt.pro
+        fi
+    
     - name: Update pro file with OpenSSL
       run: |
         OPENSSL_PATH="$GITHUB_WORKSPACE/openssl-android"
