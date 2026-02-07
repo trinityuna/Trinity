@@ -1,9 +1,9 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
     paths:
       - '**.cpp'
       - '**.h'
@@ -28,7 +28,7 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
     
-    - name: Install Qt Desktop (required for Android build tools)
+    - name: Install Qt Desktop
       uses: jurplel/install-qt-action@v3
       with:
         version: '6.6.0'
@@ -56,39 +56,25 @@ jobs:
     
     - name: Build OpenSSL for Android
       run: |
-        # Download OpenSSL
         wget https://github.com/openssl/openssl/releases/download/openssl-3.0.13/openssl-3.0.13.tar.gz
         tar -xzf openssl-3.0.13.tar.gz
         cd openssl-3.0.13
-        
-        # Set up Android toolchain
         export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.1.8937393
         export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
-        
-        # Configure and build for arm64
-        ./Configure android-arm64 \
-          -D__ANDROID_API__=23 \
-          --prefix=$GITHUB_WORKSPACE/openssl-android \
-          no-shared
-        
+        ./Configure android-arm64 -D__ANDROID_API__=23 --prefix=$GITHUB_WORKSPACE/openssl-android no-shared
         make -j$(nproc)
         make install_sw
-        
         echo "OPENSSL_ROOT_DIR=$GITHUB_WORKSPACE/openssl-android" >> $GITHUB_ENV
     
-    - name: Update .pro file with OpenSSL paths
+    - name: Update pro file with OpenSSL
       run: |
-        # Add OpenSSL to the .pro file if not already there
         if ! grep -q "OPENSSL" FastPayQt.pro; then
           cat >> FastPayQt.pro << 'EOF'
 
-# OpenSSL configuration
 INCLUDEPATH += $$OPENSSL_ROOT_DIR/include
 LIBS += -L$$OPENSSL_ROOT_DIR/lib -lssl -lcrypto
 android {
-    ANDROID_EXTRA_LIBS += \
-        $$OPENSSL_ROOT_DIR/lib/libssl.a \
-        $$OPENSSL_ROOT_DIR/lib/libcrypto.a
+    ANDROID_EXTRA_LIBS += $$OPENSSL_ROOT_DIR/lib/libssl.a $$OPENSSL_ROOT_DIR/lib/libcrypto.a
 }
 EOF
         fi
@@ -96,17 +82,6 @@ EOF
     - name: Build APK
       run: |
         export OPENSSL_ROOT_DIR=$GITHUB_WORKSPACE/openssl-android
-        
-        PRO_FILE=$(find . -name "FastPayQt.pro" | head -n 1)
-        if [ -z "$PRO_FILE" ]; then
-          echo "Error: FastPayQt.pro not found!"
-          exit 1
-        fi
-        
-        PROJECT_DIR=$(dirname "$PRO_FILE")
-        echo "Found project at: $PROJECT_DIR"
-        
-        cd "$PROJECT_DIR"
         qmake FastPayQt.pro -spec android-clang "CONFIG+=release"
         make -j$(nproc)
         make apk
@@ -116,12 +91,11 @@ EOF
       run: |
         APK_PATH=$(find . -name "*.apk" | head -n 1)
         if [ -z "$APK_PATH" ]; then
-          echo "No APK found! Searching for build outputs:"
-          find . -type f \( -name "*.apk" -o -name "*.aab" -o -name "*.so" \)
+          echo "No APK found"
+          find . -type f -name "*.apk" -o -name "*.aab"
           exit 1
         fi
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-        echo "Found APK at: $APK_PATH"
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
@@ -129,11 +103,3 @@ EOF
         name: FastPay-Android-APK
         path: ${{ steps.find_apk.outputs.apk_path }}
         retention-days: 30
-    
-    - name: Build Summary
-      run: |
-        echo "### Build Successful! " >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**APK Location:** ${{ steps.find_apk.outputs.apk_path }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Download the APK from the **Artifacts** section above." >> $GITHUB_STEP_SUMMARY
