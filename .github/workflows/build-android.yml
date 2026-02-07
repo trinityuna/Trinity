@@ -54,16 +54,26 @@ jobs:
         sdkmanager --install "ndk;25.1.8937393"
         echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.1.8937393" >> $GITHUB_ENV
     
-    - name: Configure environment
+    - name: List repository structure
       run: |
-        echo "Qt Desktop: $(find $Qt6_DIR/.. -name gcc_64)"
-        echo "Qt Android: $Qt6_DIR"
-        echo "Android SDK: $ANDROID_SDK_ROOT"
-        echo "Android NDK: $ANDROID_NDK_ROOT"
-        echo "Java: $JAVA_HOME"
+        echo "Repository contents:"
+        ls -la
+        echo "Looking for .pro files:"
+        find . -name "*.pro"
     
     - name: Build APK
       run: |
+        # Find the .pro file location
+        PRO_FILE=$(find . -name "FastPayQt.pro" | head -n 1)
+        if [ -z "$PRO_FILE" ]; then
+          echo "Error: FastPayQt.pro not found!"
+          exit 1
+        fi
+        
+        PROJECT_DIR=$(dirname "$PRO_FILE")
+        echo "Found project at: $PROJECT_DIR"
+        
+        cd "$PROJECT_DIR"
         qmake FastPayQt.pro -spec android-clang "CONFIG+=release"
         make -j$(nproc)
         make apk
