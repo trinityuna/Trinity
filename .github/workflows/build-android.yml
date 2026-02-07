@@ -2,14 +2,6 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, master]
-    paths:
-      - '**.cpp'
-      - '**.h'
-      - '**.pro'
-      - 'CMakeLists.txt'
-      - 'server_config.h'
 
 jobs:
   build:
@@ -69,14 +61,12 @@ jobs:
     - name: Update pro file with OpenSSL
       run: |
         if ! grep -q "OPENSSL" FastPayQt.pro; then
-          cat >> FastPayQt.pro << 'EOF'
-
-INCLUDEPATH += $$OPENSSL_ROOT_DIR/include
-LIBS += -L$$OPENSSL_ROOT_DIR/lib -lssl -lcrypto
-android {
-    ANDROID_EXTRA_LIBS += $$OPENSSL_ROOT_DIR/lib/libssl.a $$OPENSSL_ROOT_DIR/lib/libcrypto.a
-}
-EOF
+          echo "" >> FastPayQt.pro
+          echo "INCLUDEPATH += \$\$OPENSSL_ROOT_DIR/include" >> FastPayQt.pro
+          echo "LIBS += -L\$\$OPENSSL_ROOT_DIR/lib -lssl -lcrypto" >> FastPayQt.pro
+          echo "android {" >> FastPayQt.pro
+          echo "    ANDROID_EXTRA_LIBS += \$\$OPENSSL_ROOT_DIR/lib/libssl.a \$\$OPENSSL_ROOT_DIR/lib/libcrypto.a" >> FastPayQt.pro
+          echo "}" >> FastPayQt.pro
         fi
     
     - name: Build APK
