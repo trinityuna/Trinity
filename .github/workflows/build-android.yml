@@ -28,7 +28,17 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
     
-    - name: Install Qt
+    - name: Install Qt Desktop (required for Android build tools)
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.6.0'
+        host: 'linux'
+        target: 'desktop'
+        arch: 'gcc_64'
+        modules: 'qtmultimedia qtconnectivity'
+        cache: false
+    
+    - name: Install Qt Android
       uses: jurplel/install-qt-action@v3
       with:
         version: '6.6.0'
@@ -46,33 +56,25 @@ jobs:
     
     - name: Configure environment
       run: |
-        export QT_HOST_PATH="${Qt6_DIR}/../gcc_64"
-        echo "QT_HOST_PATH=$QT_HOST_PATH" >> $GITHUB_ENV
+        echo "Qt Desktop: $(find $Qt6_DIR/.. -name gcc_64)"
         echo "Qt Android: $Qt6_DIR"
         echo "Android SDK: $ANDROID_SDK_ROOT"
         echo "Android NDK: $ANDROID_NDK_ROOT"
+        echo "Java: $JAVA_HOME"
     
-    - name: Build APK with androiddeployqt
+    - name: Build APK
       run: |
-        # Use Qt's androiddeployqt tool instead
-        $Qt6_DIR/bin/qmake FastPayQt.pro -spec android-clang "CONFIG+=release"
+        qmake FastPayQt.pro -spec android-clang "CONFIG+=release"
         make -j$(nproc)
-        
-        # Create android deployment
-        $Qt6_DIR/bin/androiddeployqt \
-          --input android-FastPayQt-deployment-settings.json \
-          --output android-build \
-          --android-platform android-33 \
-          --jdk $JAVA_HOME \
-          --gradle
+        make apk
     
     - name: Find APK
       id: find_apk
       run: |
-        APK_PATH=$(find . -name "*.apk" -o -name "*.aab" | head -n 1)
+        APK_PATH=$(find . -name "*.apk" | head -n 1)
         if [ -z "$APK_PATH" ]; then
-          echo "No APK/AAB found! Listing build directory:"
-          find . -type f -name "*.apk" -o -name "*.aab" -o -name "*.so"
+          echo "No APK found! Searching for build outputs:"
+          find . -type f \( -name "*.apk" -o -name "*.aab" -o -name "*.so" \)
           exit 1
         fi
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
