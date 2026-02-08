@@ -51,17 +51,40 @@ jobs:
         wget https://github.com/openssl/openssl/releases/download/openssl-3.0.13/openssl-3.0.13.tar.gz
         tar -xzf openssl-3.0.13.tar.gz
         cd openssl-3.0.13
+        
         export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.1.8937393
         export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
-        ./Configure android-arm64 -D__ANDROID_API__=23 --prefix=$GITHUB_WORKSPACE/openssl-android shared
+        
+        # Configure OpenSSL for Android with shared libraries
+        ./Configure android-arm64 -D__ANDROID_API__=23 --prefix=$GITHUB_WORKSPACE/openssl-android shared no-tests
+        
+        # Build OpenSSL
         make -j$(nproc)
+        
+        # Install OpenSSL
         make install_sw
         
-        # Copy and rename .so files to match what androiddeployqt expects
-        cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so.3 $Qt6_DIR/lib/libssl_3.so
-        cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so.3 $Qt6_DIR/lib/libcrypto_3.so
-        cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so $Qt6_DIR/lib/
-        cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so $Qt6_DIR/lib/
+        # Verify shared libraries were created
+        echo "Checking for shared libraries..."
+        ls -lh $GITHUB_WORKSPACE/openssl-android/lib/
+        
+        # Create Qt lib directory if it doesn't exist
+        mkdir -p $Qt6_DIR/lib
+        
+        # Copy shared libraries with the correct names
+        if [ -f "$GITHUB_WORKSPACE/openssl-android/lib/libssl.so.3" ]; then
+          cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so.3 $Qt6_DIR/lib/libssl_3.so
+          cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so.3 $Qt6_DIR/lib/libcrypto_3.so
+        fi
+        
+        # Also copy base .so files
+        if [ -f "$GITHUB_WORKSPACE/openssl-android/lib/libssl.so" ]; then
+          cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so $Qt6_DIR/lib/
+          cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so $Qt6_DIR/lib/
+        fi
+        
+        echo "OpenSSL libraries copied to Qt directory"
+        ls -lh $Qt6_DIR/lib/libssl* $Qt6_DIR/lib/libcrypto*
     
     - name: Fix duplicate main issue
       run: |
@@ -92,8 +115,8 @@ jobs:
       run: |
         APK_PATH=$(find . -name "*.apk" | head -n 1)
         if [ -z "$APK_PATH" ]; then
-          echo "No APK found"
-          find . -type f -name "*.apk" -o -name "*.aab"
+          echo "No APK found, searching for all package files..."
+          find . -type f \( -name "*.apk" -o -name "*.aab" \)
           exit 1
         fi
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
