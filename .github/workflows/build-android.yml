@@ -48,90 +48,150 @@ jobs:
     
     - name: Build OpenSSL for Android
       run: |
+        # Download OpenSSL
         wget https://github.com/openssl/openssl/releases/download/openssl-3.0.13/openssl-3.0.13.tar.gz
         tar -xzf openssl-3.0.13.tar.gz
         cd openssl-3.0.13
         
+        # Setup NDK environment
         export ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.1.8937393
         export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
         
-        # Configure OpenSSL for Android with shared libraries
-        ./Configure android-arm64 -D__ANDROID_API__=23 --prefix=$GITHUB_WORKSPACE/openssl-android shared no-tests
+        # Configure OpenSSL for Android arm64
+        ./Configure android-arm64 \
+          -D__ANDROID_API__=23 \
+          --prefix=$GITHUB_WORKSPACE/openssl-android \
+          --openssldir=$GITHUB_WORKSPACE/openssl-android \
+          shared \
+          no-tests
         
-        # Build OpenSSL
+        # Build and install
         make -j$(nproc)
-        
-        # Install OpenSSL
         make install_sw
         
-        # Verify shared libraries were created
-        echo "Checking for shared libraries..."
+        echo "=== OpenSSL build completed ==="
         ls -lh $GITHUB_WORKSPACE/openssl-android/lib/
-        
-        # Find the correct Qt Android directory
+    
+    - name: Install OpenSSL libraries to Qt Android
+      run: |
+        # Get Qt Android directory
         QT_ANDROID_DIR="${Qt6_DIR/gcc_64/android_arm64_v8a}"
         echo "Qt Android directory: $QT_ANDROID_DIR"
         
-        # Create lib directory if it doesn't exist
-        mkdir -p $QT_ANDROID_DIR/lib
-        
-        # Copy shared libraries with the correct names to Android Qt directory
-        if [ -f "$GITHUB_WORKSPACE/openssl-android/lib/libssl.so.3" ]; then
-          echo "Copying OpenSSL shared libraries to Android Qt directory..."
-          cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so.3 $QT_ANDROID_DIR/lib/libssl_3.so
-          cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so.3 $QT_ANDROID_DIR/lib/libcrypto_3.so
-          cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so $QT_ANDROID_DIR/lib/
-          cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so $QT_ANDROID_DIR/lib/
-          echo "✅ OpenSSL libraries copied successfully"
-          ls -lh $QT_ANDROID_DIR/lib/libssl* $QT_ANDROID_DIR/lib/libcrypto*
-        else
-          echo "❌ Error: OpenSSL shared libraries not found!"
+        # Verify Qt Android directory exists
+        if [ ! -d "$QT_ANDROID_DIR" ]; then
+          echo "❌ Qt Android directory not found at: $QT_ANDROID_DIR"
+          echo "Available Qt directories:"
+          find /home/runner/work -type d -name "android_arm64_v8a" 2>/dev/null || true
           exit 1
         fi
-    
-    - name: Fix duplicate main issue
-      run: |
-        if grep -q "Crypto/transaction.cpp" FastPayQt.pro; then
-          sed -i 's/Crypto\/transaction.cpp/# Crypto\/transaction.cpp/' FastPayQt.pro
-        fi
-    
-    - name: Update pro file with OpenSSL
-      run: |
-        OPENSSL_PATH="$GITHUB_WORKSPACE/openssl-android"
-        QT_ANDROID_DIR="${Qt6_DIR/gcc_64/android_arm64_v8a}"
         
-        if ! grep -q "OPENSSL" FastPayQt.pro; then
-          echo "" >> FastPayQt.pro
-          echo "INCLUDEPATH += $OPENSSL_PATH/include" >> FastPayQt.pro
-          echo "LIBS += -L$OPENSSL_PATH/lib -lssl -lcrypto" >> FastPayQt.pro
-          echo "android {" >> FastPayQt.pro
-          echo "    ANDROID_EXTRA_LIBS += $QT_ANDROID_DIR/lib/libssl_3.so $QT_ANDROID_DIR/lib/libcrypto_3.so" >> FastPayQt.pro
-          echo "}" >> FastPayQt.pro
+        # Create lib directory
+        mkdir -p "$QT_ANDROID_DIR/lib"
+        
+        # Copy all OpenSSL .so files
+        echo "=== Copying OpenSSL libraries ==="
+        OPENSSL_LIB="$GITHUB_WORKSPACE/openssl-android/lib"
+        
+        # Find and copy all .so files
+        find "$OPENSSL_LIB" -maxdepth 1 -name "libssl.so*" -type f -exec cp -v {} "$QT_ANDROID_DIR/lib/" \;
+        find "$OPENSSL_LIB" -maxdepth 1 -name "libcrypto.so*" -type f -exec cp -v {} "$QT_ANDROID_DIR/lib/" \;
+        
+        # Create the _3.so symlinks that androiddeployqt expects
+        cd "$QT_ANDROID_DIR/lib"
+        
+        # Handle versioned files (libssl.so.3)
+        if [ -f "libssl.so.3" ]; then
+          echo "Creating symlink: libssl_3.so -> libssl.so.3"
+          ln -sf libssl.so.3 libssl_3.so
+          ln -sf libcrypto.so.3 libcrypto_3.so
+        # Handle unversioned files (libssl.so)
+        elif [ -f "libssl.so" ]; then
+          echo "Creating copy: libssl.so -> libssl_3.so"
+          cp libssl.so libssl_3.so
+          cp libcrypto.so libcrypto_3.so
         fi
         
-        echo "Updated FastPayQt.pro:"
-        tail -10 FastPayQt.pro
+        # Verification
+        echo "=== Verifying OpenSSL installation ==="
+        if [ ! -f "libssl_3.so" ] || [ ! -f "libcrypto_3.so" ]; then
+          echo "❌ ERROR: Required OpenSSL libraries not found!"
+          echo "Contents of $QT_ANDROID_DIR/lib:"
+          ls -lh
+          exit 1
+        fi
+        
+        echo "✅ OpenSSL libraries installed successfully:"
+        ls -lh libssl* libcrypto*
+    
+    - name: Fix duplicate main() function in Crypto/transaction.cpp
+      run: |
+        # The Crypto/transaction.cpp file contains a main() function for testing
+        # This conflicts with the app's main.cpp, so we comment it out
+        echo "=== Fixing duplicate main() issue ==="
+        
+        # Comment out Crypto/transaction.cpp in FastPayQt.pro SOURCES
+        sed -i 's|^\(\s*\)Crypto/transaction.cpp|\1# Crypto/transaction.cpp  # Commented: contains test main()|' FastPayQt.pro
+        
+        # Verify the change
+        echo "=== Verification: Crypto/transaction.cpp in FastPayQt.pro ==="
+        grep -n "transaction.cpp" FastPayQt.pro || echo "transaction.cpp not found in build"
+    
+    - name: Verify project configuration
+      run: |
+        echo "=== FastPayQt.pro configuration ==="
+        cat FastPayQt.pro
+        echo ""
+        echo "=== Android section check ==="
+        sed -n '/^android {/,/^}/p' FastPayQt.pro
     
     - name: Build APK
       run: |
-        qmake FastPayQt.pro -spec android-clang "CONFIG+=release"
+        # Clean previous builds
+        make clean 2>/dev/null || true
+        rm -rf android-build 2>/dev/null || true
+        
+        # Configure project with qmake
+        echo "=== Configuring project ==="
+        qmake FastPayQt.pro -spec android-clang CONFIG+=release
+        
+        # Build the shared library
+        echo "=== Building Android library ==="
         make -j$(nproc)
-        make apk
+        
+        # Create APK package
+        echo "=== Creating APK ==="
+        make apk INSTALL_ROOT=$PWD/android-build
     
-    - name: Find APK
+    - name: Find and verify APK
       id: find_apk
       run: |
-        APK_PATH=$(find . -name "*.apk" | head -n 1)
+        echo "=== Searching for APK files ==="
+        find . -type f -name "*.apk" -o -name "*.aab" | head -10
+        
+        # Find the APK
+        APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
+        
         if [ -z "$APK_PATH" ]; then
-          echo "No APK found, searching for all package files..."
-          find . -type f \( -name "*.apk" -o -name "*.aab" \)
+          echo "❌ No APK found!"
+          echo "=== Checking build directories ==="
+          find android-build -type f 2>/dev/null | head -20 || echo "No android-build directory"
           exit 1
         fi
+        
+        # Set output
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-        echo "Found APK: $APK_PATH"
+        
+        # Display APK info
+        echo "✅ APK found successfully!"
+        echo "Path: $APK_PATH"
         ls -lh "$APK_PATH"
+        
+        # Get APK size
+        APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
+        echo "Size: $APK_SIZE"
     
-    - name: Upload APK
+    - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: FastPay-Android-APK
@@ -140,8 +200,28 @@ jobs:
     
     - name: Build Summary
       run: |
-        echo "### ✅ Build Successful!" >> $GITHUB_STEP_SUMMARY
+        APK_PATH="${{ steps.find_apk.outputs.apk_path }}"
+        APK_NAME=$(basename "$APK_PATH")
+        APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
+        
+        echo "## ✅ FastPay Android Build Successful!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Your FastPay Android APK is ready!" >> $GITHUB_STEP_SUMMARY
+        echo "Your APK is ready for download!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Download it from the **Artifacts** section above." >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Build Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **File:** \`$APK_NAME\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Size:** $APK_SIZE" >> $GITHUB_STEP_SUMMARY
+        echo "- **Architecture:** arm64-v8a" >> $GITHUB_STEP_SUMMARY
+        echo "- **Qt Version:** 6.6.0" >> $GITHUB_STEP_SUMMARY
+        echo "- **OpenSSL:** 3.0.13" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📥 Installation Instructions" >> $GITHUB_STEP_SUMMARY
+        echo "1. Download the APK from the **Artifacts** section above" >> $GITHUB_STEP_SUMMARY
+        echo "2. Transfer to your Android device (Android 6.0+)" >> $GITHUB_STEP_SUMMARY
+        echo "3. Enable \"Install from Unknown Sources\" in Settings" >> $GITHUB_STEP_SUMMARY
+        echo "4. Open and install the APK" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔐 Required Permissions" >> $GITHUB_STEP_SUMMARY
+        echo "- 🎤 **RECORD_AUDIO** - For ultrasound payment reception" >> $GITHUB_STEP_SUMMARY
+        echo "- 🌐 **INTERNET** - For online transactions" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔊 **MODIFY_AUDIO_SETTINGS** - For audio control" >> $GITHUB_STEP_SUMMARY
