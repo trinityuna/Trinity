@@ -68,23 +68,26 @@ jobs:
         echo "Checking for shared libraries..."
         ls -lh $GITHUB_WORKSPACE/openssl-android/lib/
         
-        # Create Qt lib directory if it doesn't exist
-        mkdir -p $Qt6_DIR/lib
+        # Find the correct Qt Android directory
+        QT_ANDROID_DIR="${Qt6_DIR/gcc_64/android_arm64_v8a}"
+        echo "Qt Android directory: $QT_ANDROID_DIR"
         
-        # Copy shared libraries with the correct names
+        # Create lib directory if it doesn't exist
+        mkdir -p $QT_ANDROID_DIR/lib
+        
+        # Copy shared libraries with the correct names to Android Qt directory
         if [ -f "$GITHUB_WORKSPACE/openssl-android/lib/libssl.so.3" ]; then
-          cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so.3 $Qt6_DIR/lib/libssl_3.so
-          cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so.3 $Qt6_DIR/lib/libcrypto_3.so
+          echo "Copying OpenSSL shared libraries to Android Qt directory..."
+          cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so.3 $QT_ANDROID_DIR/lib/libssl_3.so
+          cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so.3 $QT_ANDROID_DIR/lib/libcrypto_3.so
+          cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so $QT_ANDROID_DIR/lib/
+          cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so $QT_ANDROID_DIR/lib/
+          echo "✅ OpenSSL libraries copied successfully"
+          ls -lh $QT_ANDROID_DIR/lib/libssl* $QT_ANDROID_DIR/lib/libcrypto*
+        else
+          echo "❌ Error: OpenSSL shared libraries not found!"
+          exit 1
         fi
-        
-        # Also copy base .so files
-        if [ -f "$GITHUB_WORKSPACE/openssl-android/lib/libssl.so" ]; then
-          cp $GITHUB_WORKSPACE/openssl-android/lib/libssl.so $Qt6_DIR/lib/
-          cp $GITHUB_WORKSPACE/openssl-android/lib/libcrypto.so $Qt6_DIR/lib/
-        fi
-        
-        echo "OpenSSL libraries copied to Qt directory"
-        ls -lh $Qt6_DIR/lib/libssl* $Qt6_DIR/lib/libcrypto*
     
     - name: Fix duplicate main issue
       run: |
@@ -95,14 +98,19 @@ jobs:
     - name: Update pro file with OpenSSL
       run: |
         OPENSSL_PATH="$GITHUB_WORKSPACE/openssl-android"
+        QT_ANDROID_DIR="${Qt6_DIR/gcc_64/android_arm64_v8a}"
+        
         if ! grep -q "OPENSSL" FastPayQt.pro; then
           echo "" >> FastPayQt.pro
           echo "INCLUDEPATH += $OPENSSL_PATH/include" >> FastPayQt.pro
           echo "LIBS += -L$OPENSSL_PATH/lib -lssl -lcrypto" >> FastPayQt.pro
           echo "android {" >> FastPayQt.pro
-          echo "    ANDROID_EXTRA_LIBS += $Qt6_DIR/lib/libssl_3.so $Qt6_DIR/lib/libcrypto_3.so" >> FastPayQt.pro
+          echo "    ANDROID_EXTRA_LIBS += $QT_ANDROID_DIR/lib/libssl_3.so $QT_ANDROID_DIR/lib/libcrypto_3.so" >> FastPayQt.pro
           echo "}" >> FastPayQt.pro
         fi
+        
+        echo "Updated FastPayQt.pro:"
+        tail -10 FastPayQt.pro
     
     - name: Build APK
       run: |
